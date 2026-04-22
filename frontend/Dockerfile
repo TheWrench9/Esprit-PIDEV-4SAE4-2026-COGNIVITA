@@ -1,7 +1,7 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY . .
-RUN npm ci --silent
+RUN npm ci --silent --legacy-peer-deps
 RUN ./node_modules/.bin/ng build --configuration=production
 
 FROM nginx:1.25-alpine
