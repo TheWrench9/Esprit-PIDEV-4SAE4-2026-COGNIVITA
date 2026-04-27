@@ -6,7 +6,9 @@ spring:
     name: medical-records-service
 
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:medical_records_db}
+    url: jdbc:mysql://mysql-medical:3306/medical_records_db
+    #url: jdbc:mysql://mysql-medical:3306/medical_records_db
+    #url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:medical_records_db}
     username: ${DB_USER:root}
     password: ${DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver

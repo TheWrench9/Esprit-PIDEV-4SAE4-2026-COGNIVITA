@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: medical-records-service
+  namespace: cognivita
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: medical-records-service
+  template:
+    metadata:
+      labels:
+        app: medical-records-service
+    spec:
+      containers:
+        - name: medical-records-container
+          image: monta2027/medical-records-service:latest
+          ports:
+            - containerPort: 8081
+                    env:
+            - name: DB_HOST
+              value: "mysql-medical"
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_NAME
+              value: "medical_records_db"
+            - name: DB_USER
+              value: "root"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medical-records-secrets
+                  key: MYSQL_ROOT_PASSWORD
+            - name: MAIL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: medical-records-secrets
+                  key: MAIL_HOST
+            - name: MAIL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: medical-records-secrets
+                  key: MAIL_PORT
+            - name: MAIL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: medical-records-secrets
+                  key: MAIL_USERNAME
+            - name: MAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medical-records-secrets
+                  key: MAIL_PASSWORD
+            - name: MAIL_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: medical-records-secrets
+                  key: MAIL_FROM
+            - name: REPORT_FROM_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: medical-records-secrets
+                  key: REPORT_FROM_EMAIL
+            - name: REPORT_DOCTOR_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: medical-records-secrets
+                  key: REPORT_DOCTOR_EMAIL
+            - name: USER_SERVICE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: medical-records-secrets
+                  key: USER_SERVICE_URL

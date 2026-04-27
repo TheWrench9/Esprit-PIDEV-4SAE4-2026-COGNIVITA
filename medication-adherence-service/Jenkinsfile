@@ -1,0 +1,126 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_USER   = 'monta2027'
+        K8S_NAMESPACE = 'cognivita'
+
+        // ↓ Change these 3 lines per service ↓
+        SERVICE_NAME  = 'medication-adherence-service'      // or health-prevention-service, etc.
+        K8S_DIR       = 'k8s/medication-adherence'          // match your actual k8s folder name
+        PATH          = "/var/jenkins_home/bin:${env.PATH}"
+    }
+
+    stages {
+
+        stage('1. Checkout') {
+            steps {
+                retry(3) {
+                    git branch: 'main',
+                        credentialsId: 'bf9b2350-b501-44a9-890e-2899e35b0854',
+                        url: 'https://github.com/TheWrench9/Esprit-PIDEV-4SAE4-2026-COGNIVITA'
+                }
+                script {
+                    env.GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                    env.FULL_IMAGE_TAG   = "${BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
+                    echo "Tag: ${env.FULL_IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('2. Build JAR') {
+            steps {
+                dir("${SERVICE_NAME}") {
+                    sh 'mvn clean package -DskipTests'
+                }
+            }
+        }
+
+        stage('3. Unit Tests') {
+            steps {
+                dir("${SERVICE_NAME}") {
+                    sh 'mvn test'
+                }
+            }
+            post {
+                always {
+                    junit "${SERVICE_NAME}/target/surefire-reports/*.xml"
+                }
+            }
+        }
+
+        stage('4. SonarQube Analysis') {
+            steps {
+                script {
+                    def scannerHome = tool 'sonar-scanner'
+                    withSonarQubeEnv('sonar') {
+                        sh """
+                            ${scannerHome}/bin/sonar-scanner \
+                              -Dsonar.projectKey=cognivita-${SERVICE_NAME} \
+                              -Dsonar.sources=${SERVICE_NAME}/src/main/java \
+                              -Dsonar.tests=${SERVICE_NAME}/src/test/java \
+                              -Dsonar.java.binaries=${SERVICE_NAME}/target/classes \
+                              -Dsonar.projectVersion=${BUILD_NUMBER} \
+                              -Dsonar.scm.disabled=true
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('5. Quality Gate') {
+            options { timeout(time: 15, unit: 'MINUTES') }
+            steps {
+                script {
+                    def qg = waitForQualityGate abortPipeline: true
+                    echo "Quality Gate: ${qg.status}"
+                }
+            }
+        }
+
+        stage('6. Build & Push Docker Image') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'Docker',
+                    usernameVariable: 'DOCKER_LOGIN',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_LOGIN" --password-stdin'
+                    sh """
+                        cd ${SERVICE_NAME}
+                        docker build -t ${DOCKER_USER}/${SERVICE_NAME}:${env.FULL_IMAGE_TAG} .
+                        docker tag  ${DOCKER_USER}/${SERVICE_NAME}:${env.FULL_IMAGE_TAG} \
+                                    ${DOCKER_USER}/${SERVICE_NAME}:latest
+                        docker push ${DOCKER_USER}/${SERVICE_NAME}:${env.FULL_IMAGE_TAG}
+                        docker push ${DOCKER_USER}/${SERVICE_NAME}:latest
+                    """
+                }
+            }
+        }
+
+        stage('7. Deploy to Kubernetes') {
+            steps {
+                sh """
+                    kubectl apply -f ${K8S_DIR}/
+                    kubectl rollout restart deployment/${SERVICE_NAME} -n ${K8S_NAMESPACE}
+                    kubectl rollout status  deployment/${SERVICE_NAME} -n ${K8S_NAMESPACE} --timeout=180s
+                """
+            }
+        }
+
+        stage('8. Verify') {
+            steps {
+                sh "kubectl get pods -n ${K8S_NAMESPACE} -l app=${SERVICE_NAME}"
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+            sh 'docker system prune -f || true'
+        }
+        success { echo "✅ ${SERVICE_NAME} deployed successfully — ${env.FULL_IMAGE_TAG}" }
+        failure { echo "❌ ${SERVICE_NAME} pipeline FAILED" }
+    }
+}

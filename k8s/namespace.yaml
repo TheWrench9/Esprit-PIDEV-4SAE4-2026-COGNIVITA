@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata: 
+  name: cognivita
+  labels:
+    name: congivita
+    project: congivita
+    managed-by: jenkins
