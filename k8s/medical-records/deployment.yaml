@@ -18,7 +18,7 @@ spec:
           image: monta2027/medical-records-service:latest
           ports:
             - containerPort: 8081
-                    env:
+          env:
             - name: DB_HOST
               value: "mysql-medical"
             - name: DB_PORT
