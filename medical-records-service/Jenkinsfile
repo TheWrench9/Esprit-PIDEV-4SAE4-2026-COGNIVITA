@@ -97,6 +97,15 @@ stage('3. Unit Tests') {
                 }
             }
         }
+        stage('7. Deploy to Kubernetes') {
+            steps {
+                sh """
+                    kubectl apply -f ${K8S_DIR}/
+                    kubectl rollout restart deployment/${SERVICE_NAME} -n ${K8S_NAMESPACE}
+                    kubectl rollout status  deployment/${SERVICE_NAME} -n ${K8S_NAMESPACE} --timeout=180s
+                """
+            }
+        }
 
 stage('8. Verify') {
     steps {
@@ -111,12 +120,6 @@ stage('8. Verify') {
     }
 }
 
-        stage('8. Verify') {
-            steps {
-                sh "kubectl get pods -n ${K8S_NAMESPACE} -l app=${SERVICE_NAME}"
-            }
-        }
-    }
 
     post {
         always {
