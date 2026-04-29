@@ -5,7 +5,7 @@ pipeline {
         DOCKER_USER   = 'monta2027'
         K8S_NAMESPACE = 'cognivita'
         SERVICE_NAME  = 'health-prevention-service'
-        K8S_DIR       = 'k8s/health-prevention'
+        K8S_DIR       = 'k8s/health-prevention-service'
         PATH          = "/var/jenkins_home/bin:${env.PATH}"
     }
 
