@@ -4,10 +4,8 @@ pipeline {
     environment {
         DOCKER_USER   = 'monta2027'
         K8S_NAMESPACE = 'cognivita'
-
-        // ↓ Change these 3 lines per service ↓
-        SERVICE_NAME  = 'medical-records-service'      // or health-prevention-service, etc.
-        K8S_DIR       = 'k8s/medical-records'          // match your actual k8s folder name
+        SERVICE_NAME  = 'medical-records-service'
+        K8S_DIR       = 'k8s/medical-records'
         PATH          = "/var/jenkins_home/bin:${env.PATH}"
     }
 
@@ -36,18 +34,18 @@ pipeline {
             }
         }
 
-stage('3. Unit Tests') {
-    steps {
-        dir("${SERVICE_NAME}") {
-            sh 'mvn test -Dsurefire.failIfNoSpecifiedTests=false || true'
+        stage('3. Unit Tests') {
+            steps {
+                dir("${SERVICE_NAME}") {
+                    sh 'mvn test -Dsurefire.failIfNoSpecifiedTests=false || true'
+                }
+            }
+            post {
+                always {
+                    junit "${SERVICE_NAME}/target/surefire-reports/*.xml"
+                }
+            }
         }
-    }
-    post {
-        always {
-            junit "${SERVICE_NAME}/target/surefire-reports/*.xml"
-        }
-    }
-}
 
         stage('4. SonarQube Analysis') {
             steps {
@@ -97,6 +95,7 @@ stage('3. Unit Tests') {
                 }
             }
         }
+
         stage('7. Deploy to Kubernetes') {
             steps {
                 sh """
@@ -107,19 +106,20 @@ stage('3. Unit Tests') {
             }
         }
 
-stage('8. Verify') {
-    steps {
-        sh """
-            kubectl wait pod \
-              -n cognivita \
-              -l app=medical-records-service \
-              --for=condition=Ready \
-              --timeout=60s
-            kubectl get pods -n cognivita -l app=medical-records-service
-        """
-    }
-}
+        stage('8. Verify') {
+            steps {
+                sh """
+                    kubectl wait pod \
+                      -n ${K8S_NAMESPACE} \
+                      -l app=${SERVICE_NAME} \
+                      --for=condition=Ready \
+                      --timeout=60s
+                    kubectl get pods -n ${K8S_NAMESPACE} -l app=${SERVICE_NAME}
+                """
+            }
+        }
 
+    }  // ← closes stages
 
     post {
         always {
@@ -129,4 +129,5 @@ stage('8. Verify') {
         success { echo "${SERVICE_NAME} deployed successfully — ${env.FULL_IMAGE_TAG}" }
         failure { echo "${SERVICE_NAME} pipeline FAILED" }
     }
-}
+
+}  // ← closes pipeline
