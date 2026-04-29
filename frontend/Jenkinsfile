@@ -1,6 +1,10 @@
 pipeline {
     agent any
 
+    tools {
+        nodejs 'nodejs-20'   
+    }
+
     environment {
         DOCKER_USER   = 'monta2027'
         K8S_NAMESPACE = 'cognivita'
@@ -110,7 +114,14 @@ pipeline {
 
         stage('9. Verify') {
             steps {
-                sh "kubectl get pods -n ${K8S_NAMESPACE} -l app=${SERVICE_NAME}"
+                sh """
+                    kubectl wait pod \
+                      -n ${K8S_NAMESPACE} \
+                      -l app=${SERVICE_NAME} \
+                      --for=condition=Ready \
+                      --timeout=60s
+                    kubectl get pods -n ${K8S_NAMESPACE} -l app=${SERVICE_NAME}
+                """
             }
         }
     }
