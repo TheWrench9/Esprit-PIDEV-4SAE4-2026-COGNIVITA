@@ -11,4 +11,3 @@ spec:
     - port: 8087
       targetPort: 8087
       nodePort: 30087
-~
