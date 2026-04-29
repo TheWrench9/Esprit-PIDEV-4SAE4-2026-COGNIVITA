@@ -7,7 +7,7 @@ pipeline {
 
         // ↓ Change these 3 lines per service ↓
         SERVICE_NAME  = 'medication-adherence-service'      // or health-prevention-service, etc.
-        K8S_DIR       = 'k8s/medication-adherence'          // match your actual k8s folder name
+        K8S_DIR       = 'k8s/medication-adherence-service'          // match your actual k8s folder name
         PATH          = "/var/jenkins_home/bin:${env.PATH}"
     }
 
