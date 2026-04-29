@@ -98,15 +98,18 @@ stage('3. Unit Tests') {
             }
         }
 
-        stage('7. Deploy to Kubernetes') {
-            steps {
-                sh """
-                    kubectl apply -f ${K8S_DIR}/
-                    kubectl rollout restart deployment/${SERVICE_NAME} -n ${K8S_NAMESPACE}
-                    kubectl rollout status  deployment/${SERVICE_NAME} -n ${K8S_NAMESPACE} --timeout=180s
-                """
-            }
-        }
+stage('8. Verify') {
+    steps {
+        sh """
+            kubectl wait pod \
+              -n cognivita \
+              -l app=medical-records-service \
+              --for=condition=Ready \
+              --timeout=60s
+            kubectl get pods -n cognivita -l app=medical-records-service
+        """
+    }
+}
 
         stage('8. Verify') {
             steps {
