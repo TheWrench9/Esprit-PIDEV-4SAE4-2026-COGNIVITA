@@ -41,7 +41,7 @@ pipeline {
         stage('3. Unit Tests') {
             steps {
                 dir("${SERVICE_NAME}") {
-                    sh 'npm test -- --watchAll=false --passWithNoTests'
+                    sh 'npm test -- --passWithNoTests'
                 }
             }
         }
