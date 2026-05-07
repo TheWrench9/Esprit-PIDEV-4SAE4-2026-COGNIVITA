@@ -1,0 +1,151 @@
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        skipDefaultCheckout(true)
+    }
+
+    triggers {
+        githubPush()
+    }
+
+    environment {
+        DOCKER_USER       = 'monta2027'
+        SERVICE_NAME      = 'pi'
+        SERVICE_DIR       = 'pi/pi'
+        SONAR_PROJECT_KEY = 'pi-rdv-service'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout([
+                    $class: 'GitSCM',
+                    branches: scm.branches,
+                    extensions: [
+                        [$class: 'CloneOption', shallow: true, depth: 1, noTags: true, timeout: 30],
+                        [$class: 'SparseCheckoutPaths', sparseCheckoutPaths: [[path: 'pi/pi']]]
+                    ],
+                    userRemoteConfigs: scm.userRemoteConfigs
+                ])
+                script {
+                    env.GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                    env.FULL_IMAGE_TAG   = "${BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
+                }
+                echo "✅ Code checked out for pi-rdv-service — Tag: ${env.FULL_IMAGE_TAG}"
+            }
+        }
+
+        stage('Build') {
+            steps {
+                dir("${SERVICE_DIR}") {
+                    script {
+                        if (isUnix()) {
+                            sh 'mvn -B clean compile -DskipTests'
+                        } else {
+                            bat 'mvn -B clean compile -DskipTests'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                dir("${SERVICE_DIR}") {
+                    script {
+                        if (isUnix()) {
+                            sh 'mvn -B test'
+                        } else {
+                            bat 'mvn -B test'
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    junit testResults: 'pi/pi/target/surefire-reports/*.xml',
+                          allowEmptyResults: true
+                    jacoco(
+                        execPattern: 'pi/pi/target/jacoco.exec',
+                        classPattern: 'pi/pi/target/classes',
+                        sourcePattern: 'pi/pi/src/main/java',
+                        exclusionPattern: 'pi/pi/src/test/**'
+                    )
+                }
+            }
+        }
+
+        stage('Code Quality - SonarQube') {
+            steps {
+                dir("${SERVICE_DIR}") {
+                    withSonarQubeEnv('sonar') {
+                        script {
+                            if (isUnix()) {
+                                sh """
+                                    mvn -B verify sonar:sonar \
+                                        -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                        -Dsonar.projectName="pi-rdv-service" \
+                                        -Dsonar.java.coveragePlugin=jacoco \
+                                        -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+                                """
+                            } else {
+                                bat """
+                                    mvn -B verify sonar:sonar ^
+                                        -Dsonar.projectKey=${SONAR_PROJECT_KEY} ^
+                                        -Dsonar.projectName="pi-rdv-service" ^
+                                        -Dsonar.java.coveragePlugin=jacoco ^
+                                        -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+                                """
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Build & Push Docker Image') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'Docker',
+                    usernameVariable: 'DOCKER_LOGIN',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_LOGIN" --password-stdin'
+                    sh """
+                        cd ${SERVICE_DIR}
+                        docker build -t ${DOCKER_USER}/${SERVICE_NAME}:${env.FULL_IMAGE_TAG} .
+                        docker tag  ${DOCKER_USER}/${SERVICE_NAME}:${env.FULL_IMAGE_TAG} \
+                                    ${DOCKER_USER}/${SERVICE_NAME}:latest
+                        docker push ${DOCKER_USER}/${SERVICE_NAME}:${env.FULL_IMAGE_TAG}
+                        docker push ${DOCKER_USER}/${SERVICE_NAME}:latest
+                        docker logout
+                    """
+                }
+            }
+        }
+
+    }
+
+    post {
+        always {
+            cleanWs()
+            sh "docker rmi ${DOCKER_USER}/${SERVICE_NAME}:${env.FULL_IMAGE_TAG} || true"
+            sh 'docker system prune -f || true'
+        }
+        success { echo "✅ CI Pipeline SUCCESS for pi-rdv-service — ${env.FULL_IMAGE_TAG}" }
+        failure { echo "❌ CI Pipeline FAILED for pi-rdv-service — check unit tests or SonarQube" }
+    }
+}

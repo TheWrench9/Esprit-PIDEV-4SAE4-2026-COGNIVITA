@@ -1,0 +1,119 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_USER   = 'monta2027'
+        K8S_NAMESPACE = 'cognivita'
+        SERVICE_NAME  = 'api-gateway'
+        K8S_DIR       = 'k8s/api-gateway'
+        PATH          = "/var/jenkins_home/bin:${env.PATH}"
+    }
+
+    stages {
+        stage('1. Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('2. Build JAR') {
+            steps {
+                dir("${SERVICE_NAME}") {
+                    sh 'mvn clean package -DskipTests'
+                }
+            }
+        }
+
+        stage('3. Unit Tests') {
+            steps {
+                dir("${SERVICE_NAME}") {
+                    sh 'mvn test'
+                }
+            }
+            post {
+                always {
+                    junit "${SERVICE_NAME}/target/surefire-reports/*.xml"
+                    jacoco(
+                        execPattern: "${SERVICE_NAME}/target/jacoco.exec",
+                        classPattern: "${SERVICE_NAME}/target/classes",
+                        sourcePattern: "${SERVICE_NAME}/src/main/java",
+                        exclusionPattern: "${SERVICE_NAME}/src/test/**"
+                    )
+                }
+            }
+        }
+
+        stage('4. SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    script {
+                        def scannerHome = tool 'SonarScanner'
+                        sh """
+                            ${scannerHome}/bin/sonar-scanner \
+                              -Dsonar.projectKey=cognivita-${SERVICE_NAME} \
+                              -Dsonar.sources=${SERVICE_NAME}/src/main/java \
+                              -Dsonar.tests=${SERVICE_NAME}/src/test/java \
+                              -Dsonar.java.binaries=${SERVICE_NAME}/target/classes \
+                              -Dsonar.projectVersion=${BUILD_NUMBER} \
+                              -Dsonar.scm.disabled=true
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('5. Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('6. Build & Push Docker Image') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'Docker',
+                    usernameVariable: 'DOCKER_LOGIN',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_LOGIN" --password-stdin'
+                    sh """
+                        cd ${SERVICE_NAME}
+                        docker build -t ${DOCKER_USER}/${SERVICE_NAME}:${env.FULL_IMAGE_TAG} .
+                        docker tag  ${DOCKER_USER}/${SERVICE_NAME}:${env.FULL_IMAGE_TAG} \
+                                    ${DOCKER_USER}/${SERVICE_NAME}:latest
+                        docker push ${DOCKER_USER}/${SERVICE_NAME}:${env.FULL_IMAGE_TAG}
+                        docker push ${DOCKER_USER}/${SERVICE_NAME}:latest
+                    """
+                }
+            }
+        }
+
+        stage('7. Deploy to Kubernetes') {
+            steps {
+                sh """
+                    kubectl apply -f ${K8S_DIR}/
+                    kubectl rollout restart deployment/${SERVICE_NAME} -n ${K8S_NAMESPACE}
+                    kubectl rollout status  deployment/${SERVICE_NAME} -n ${K8S_NAMESPACE} --timeout=180s
+                """
+            }
+        }
+
+        stage('8. Verify') {
+            steps {
+                sh "kubectl get pods -n ${K8S_NAMESPACE} -l app=${SERVICE_NAME}"
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+            sh 'docker system prune -f || true'
+        }
+        success {
+            echo "✅ ${SERVICE_NAME} deployed successfully — ${env.FULL_IMAGE_TAG}"
+        }
+    }
+}

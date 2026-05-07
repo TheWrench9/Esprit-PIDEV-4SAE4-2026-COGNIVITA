@@ -1,0 +1,106 @@
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        skipDefaultCheckout(true)
+    }
+
+    triggers {
+        githubPush()
+    }
+
+    environment {
+        DOCKER_USER       = 'monta2027'
+        K8S_NAMESPACE     = 'cognivita'
+        SERVICE_NAME      = 'pi-rdv-service'
+        SERVICE_DIR       = 'pi/pi'
+        K8S_DIR           = 'k8s/pi-rdv-service'
+        SONAR_PROJECT_KEY = 'pi-rdv-service'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout([
+                    $class: 'GitSCM',
+                    branches: scm.branches,
+                    extensions: [
+                        [$class: 'CloneOption', shallow: true, depth: 1, noTags: true, timeout: 30],
+                        [$class: 'SparseCheckoutPaths', sparseCheckoutPaths: [[path: 'pi/pi']]]
+                    ],
+                    userRemoteConfigs: scm.userRemoteConfigs
+                ])
+                echo "✅ Code checked out for ${SERVICE_NAME}"
+            }
+        }
+
+        stage('Build') {
+            steps {
+                dir("${SERVICE_DIR}") {
+                    sh 'mvn -B clean compile -DskipTests'
+                }
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                dir("${SERVICE_DIR}") {
+                    sh 'mvn -B test'
+                }
+            }
+            post {
+                always {
+                    junit testResults: 'pi/pi/target/surefire-reports/*.xml',
+                          allowEmptyResults: true
+                    jacoco(
+                        execPattern: 'pi/pi/target/jacoco.exec',
+                        classPattern: 'pi/pi/target/classes',
+                        sourcePattern: 'pi/pi/src/main/java',
+                        exclusionPattern: 'pi/pi/src/test/**'
+                    )
+                }
+            }
+        }
+
+        stage('Code Quality - SonarQube') {
+            steps {
+                dir("${SERVICE_DIR}") {
+                    withSonarQubeEnv('sonar') {
+                        sh """
+                            mvn -B verify sonar:sonar \
+                                -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                -Dsonar.projectName="${SERVICE_NAME}" \
+                                -Dsonar.java.coveragePlugin=jacoco \
+                                -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+    }  // ← this was missing!
+
+    post {
+        success {
+            echo "✅ CI Pipeline SUCCESS for ${SERVICE_NAME}"
+        }
+        failure {
+            echo "❌ CI Pipeline FAILED for ${SERVICE_NAME} — check unit tests or SonarQube"
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
