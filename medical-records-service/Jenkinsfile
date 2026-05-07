@@ -65,7 +65,8 @@ pipeline {
                               -Dsonar.tests=${SERVICE_NAME}/src/test/java \
                               -Dsonar.java.binaries=${SERVICE_NAME}/target/classes \
                               -Dsonar.projectVersion=${BUILD_NUMBER} \
-                              -Dsonar.scm.disabled=true
+                              -Dsonar.scm.disabled=true \
+                              -Dsonar.coverage.jacoco.xmlReportPaths=${SERVICE_NAME}/target/site/jacoco/jacoco.xml
                         """
                     }
                 }
